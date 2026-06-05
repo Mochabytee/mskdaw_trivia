@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MSKDAW — Access Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green: #7ed957;
+      --green-dim: #4a8c2e;
+      --green-glow: rgba(126, 217, 87, 0.12);
+      --red: #ff4444;
+      --blue: #4fc3f7;
+      --bg: #080c08;
+      --bg2: #0d120d;
+      --surface: #111811;
+      --border: rgba(126, 217, 87, 0.18);
+      --text: #c8e6c9;
+      --text-dim: #557a55;
+      --mono: 'Share Tech Mono', monospace;
+      --display: 'Rajdhani', sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      overflow-x: hidden;
+    }
+
+    /* Scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+      );
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    /* Grid background */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(126,217,87,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(126,217,87,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .wrapper {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    .brand {
+      font-family: var(--display);
+      font-size: clamp(2.5rem, 8vw, 4.5rem);
+      font-weight: 700;
+      color: var(--green);
+      letter-spacing: 0.18em;
+      line-height: 1;
+      text-shadow: 0 0 40px rgba(126,217,87,0.3);
+    }
+
+    .brand-sub {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      margin-top: 0.5rem;
+    }
+
+    /* ── TERMINAL BOX ── */
+    .terminal {
+      width: 100%;
+      max-width: 640px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .terminal-bar {
+      background: #0a0f0a;
+      border-bottom: 1px solid var(--border);
+      padding: 0.65rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+    }
+    .dot.r { background: #ff5f57; }
+    .dot.y { background: #febc2e; }
+    .dot.g { background: #28c840; }
+
+    .terminal-title {
+      margin-left: auto;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+    }
+
+    .terminal-body {
+      padding: 1.5rem;
+      min-height: 320px;
+    }
+
+    /* ── BOOT LINES ── */
+    .boot-line {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin-bottom: 0.3rem;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .boot-line.visible { opacity: 1; }
+    .boot-line .ok { color: var(--green); }
+    .boot-line .warn { color: #febc2e; }
+    .boot-line .err { color: var(--red); }
+
+    /* ── AUTH PROMPT ── */
+    .auth-section {
+      margin-top: 1.5rem;
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+    .auth-section.visible { opacity: 1; }
+
+    .prompt-line {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      margin-bottom: 0.75rem;
+    }
+    .prompt-line span { color: var(--green); }
+
+    .input-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.6rem 0.85rem;
+      background: var(--bg2);
+      transition: border-color 0.2s;
+    }
+    .input-row:focus-within {
+      border-color: var(--green-dim);
+    }
+    .input-row.error { border-color: var(--red); }
+    .input-row.success { border-color: var(--green); }
+
+    .cursor-prefix {
+      color: var(--green);
+      font-size: 0.9rem;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    #authInput {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      flex: 1;
+      letter-spacing: 0.15em;
+      caret-color: var(--green);
+    }
+
+    #authInput::placeholder {
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+      font-size: 0.75rem;
+    }
+
+    .enter-hint {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      margin-top: 0.5rem;
+    }
+
+    .error-msg {
+      font-size: 0.75rem;
+      color: var(--red);
+      margin-top: 0.5rem;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .error-msg.visible { opacity: 1; }
+
+    /* ── ACCESS GRANTED ── */
+    .granted-section {
+      display: none;
+      margin-top: 0.5rem;
+    }
+
+    .granted-banner {
+      border: 1px solid var(--green);
+      border-radius: 3px;
+      padding: 0.75rem 1rem;
+      background: var(--green-glow);
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .granted-banner .icon {
+      font-size: 1.1rem;
+      color: var(--green);
+    }
+
+    .granted-banner .label {
+      font-size: 0.8rem;
+      color: var(--green);
+      letter-spacing: 0.1em;
+    }
+
+    .granted-banner .sub {
+      font-size: 0.65rem;
+      color: var(--green-dim);
+      margin-top: 0.15rem;
+    }
+
+    /* ── QUESTION CARD ── */
+    .question-card {
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 1.25rem;
+      background: var(--bg2);
+      margin-bottom: 1.25rem;
+    }
+
+    .q-label {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .q-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .question-text {
+      font-family: var(--display);
+      font-size: clamp(1rem, 3vw, 1.25rem);
+      font-weight: 600;
+      color: #fff;
+      line-height: 1.5;
+    }
+
+    /* ── CTA ── */
+    .cta-box {
+      border: 1px dashed var(--border);
+      border-radius: 3px;
+      padding: 1rem 1.25rem;
+      text-align: center;
+    }
+
+    .cta-step {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      line-height: 1.8;
+    }
+
+    .cta-step strong {
+      color: var(--green);
+      font-weight: normal;
+    }
+
+    .cta-handle {
+      font-family: var(--display);
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--blue);
+      letter-spacing: 0.05em;
+      margin-top: 0.5rem;
+      display: block;
+    }
+
+    .prize-tag {
+      display: inline-block;
+      background: rgba(126,217,87,0.08);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 0.2rem 0.6rem;
+      font-size: 0.65rem;
+      color: var(--green);
+      letter-spacing: 0.15em;
+      margin-top: 0.75rem;
+    }
+
+    /* ── FOOTER ── */
+    .footer {
+      margin-top: 2rem;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-align: center;
+    }
+
+    /* ── TYPEWRITER ── */
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 14px;
+      background: var(--green);
+      vertical-align: middle;
+      animation: blink 1s step-end infinite;
+    }
+
+    /* ── GLITCH ── */
+    @keyframes glitch {
+      0%   { transform: translate(0); }
+      20%  { transform: translate(-2px, 1px); }
+      40%  { transform: translate(2px, -1px); }
+      60%  { transform: translate(-1px, 2px); }
+      80%  { transform: translate(1px, -2px); }
+      100% { transform: translate(0); }
+    }
+
+    .glitch {
+      animation: glitch 0.3s linear;
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 480px) {
+      .terminal-body { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="wrapper">
+
+  <div class="header">
+    <div class="brand">MSKDAW</div>
+    <div class="brand-sub">Cybersecurity &amp; Digital Awareness</div>
+  </div>
+
+  <div class="terminal" role="main">
+    <div class="terminal-bar">
+      <div class="dot r"></div>
+      <div class="dot y"></div>
+      <div class="dot g"></div>
+      <div class="terminal-title">mskdaw_terminal — bash</div>
+    </div>
+
+    <div class="terminal-body">
+
+      <!-- Boot sequence -->
+      <div id="bootLines">
+        <div class="boot-line" data-delay="0">Initialising MSKDAW secure terminal... <span class="ok">[OK]</span></div>
+        <div class="boot-line" data-delay="300">Loading encryption module... <span class="ok">[OK]</span></div>
+        <div class="boot-line" data-delay="600">Verifying session integrity... <span class="ok">[OK]</span></div>
+        <div class="boot-line" data-delay="900">Checking clearance level... <span class="warn">[RESTRICTED]</span></div>
+        <div class="boot-line" data-delay="1200">Authentication required to proceed.</div>
+      </div>
+
+      <!-- Auth input -->
+      <div class="auth-section" id="authSection">
+        <div class="prompt-line"><span>root@mskdaw:~$</span> enter access key to unlock</div>
+        <div class="input-row" id="inputRow">
+          <span class="cursor-prefix">&gt;_</span>
+          <input
+            type="text"
+            id="authInput"
+            placeholder="type access key here..."
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            maxlength="20"
+            aria-label="Enter the access key"
+          />
+        </div>
+        <div class="enter-hint">Press Enter to authenticate</div>
+        <div class="error-msg" id="errorMsg" role="alert">&#x2718; Access denied — incorrect key. Try again.</div>
+      </div>
+
+      <!-- Granted + Question -->
+      <div class="granted-section" id="grantedSection" aria-live="polite">
+
+        <div class="granted-banner">
+          <div class="icon">&#x2714;</div>
+          <div>
+            <div class="label">Access granted</div>
+            <div class="sub">Identity verified — welcome to MSKDAW</div>
+          </div>
+        </div>
+
+        <div class="question-card">
+          <div class="q-label">Giveaway question</div>
+          <!--
+            ╔══════════════════════════════════════════╗
+            ║  SWAP THE QUESTION HERE — easy to update ║
+            ╚══════════════════════════════════════════╝
+          -->
+          <div class="question-text" id="questionText">
+            What type of malware encrypts your files and demands payment to restore access?
+          </div>
+        </div>
+
+        <div class="cta-box">
+          <div class="cta-step">
+            Know the answer? Reply correctly in our Instagram comments to win.
+          </div>
+          <span class="cta-handle">@mskdaw1</span>
+          <div>
+            <span class="prize-tag">&#x1F3C6; £25 Amazon Gift Card — First correct reply wins</span>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <div class="footer">
+    MSKDAW &copy; 2025 &nbsp;|&nbsp; Awareness Is Protection &nbsp;|&nbsp; @mskdaw1
+  </div>
+
+</div>
+
+<script>
+  /*
+  ================================================================
+    CONFIGURATION — change ACCESS_KEY or QUESTION here only
+  ================================================================
+  */
+  const ACCESS_KEY = 'MSKDAW';
+
+  /*
+  ================================================================
+    BOOT SEQUENCE
+  ================================================================
+  */
+  const bootLines = document.querySelectorAll('.boot-line');
+  const authSection = document.getElementById('authSection');
+
+  bootLines.forEach(line => {
+    const delay = parseInt(line.dataset.delay, 10);
+    setTimeout(() => {
+      line.classList.add('visible');
+    }, delay);
+  });
+
+  const lastDelay = Math.max(...[...bootLines].map(l => parseInt(l.dataset.delay, 10)));
+  setTimeout(() => {
+    authSection.classList.add('visible');
+    document.getElementById('authInput').focus();
+  }, lastDelay + 400);
+
+  /*
+  ================================================================
+    AUTHENTICATION
+  ================================================================
+  */
+  const authInput   = document.getElementById('authInput');
+  const inputRow    = document.getElementById('inputRow');
+  const errorMsg    = document.getElementById('errorMsg');
+  const grantedSection = document.getElementById('grantedSection');
+
+  let attempts = 0;
+  const MAX_ATTEMPTS = 10;
+
+  function sanitise(str) {
+    return str.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  function authenticate() {
+    const val = sanitise(authInput.value);
+
+    if (!val) return;
+
+    if (val === ACCESS_KEY) {
+      grantAccess();
+    } else {
+      denyAccess();
+    }
+  }
+
+  function grantAccess() {
+    inputRow.classList.remove('error');
+    inputRow.classList.add('success');
+    authInput.disabled = true;
+    errorMsg.classList.remove('visible');
+
+    setTimeout(() => {
+      authSection.style.display = 'none';
+      grantedSection.style.display = 'block';
+      grantedSection.style.animation = 'none';
+      void grantedSection.offsetWidth;
+    }, 300);
+  }
+
+  function denyAccess() {
+    attempts++;
+
+    inputRow.classList.add('error');
+    inputRow.classList.add('glitch');
+
+    setTimeout(() => inputRow.classList.remove('glitch'), 350);
+
+    if (attempts >= MAX_ATTEMPTS) {
+      errorMsg.textContent = '\u2718 Too many failed attempts. Please try again later.';
+      authInput.disabled = true;
+    } else {
+      errorMsg.textContent = '\u2718 Access denied \u2014 incorrect key. Try again.';
+    }
+
+    errorMsg.classList.add('visible');
+    authInput.value = '';
+    authInput.focus();
+
+    setTimeout(() => {
+      inputRow.classList.remove('error');
+    }, 600);
+  }
+
+  authInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      authenticate();
+    }
+    if (errorMsg.classList.contains('visible')) {
+      errorMsg.classList.remove('visible');
+    }
+  });
+
+  authInput.addEventListener('input', function() {
+    this.value = this.value.toUpperCase();
+  });
+</script>
+
+</body>
+</html>
